@@ -8,7 +8,7 @@ namespace Smartstore.Data.Providers
     {
         /// <summary>
         /// Configures the context to resolve database connection settings from the current <see cref="DbFactory"/>
-        /// provider (either SqlServer or MySql).
+        /// provider (either SqlServer, MySql or PostgreSql).
         /// </summary>
         /// <param name="optionsBuilder">The builder being used to configure the context.</param>
         /// <returns>The options builder so that further configuration can be chained.</returns>
@@ -35,7 +35,7 @@ namespace Smartstore.Data.Providers
 
         /// <summary>
         /// Configures the context to resolve database connection settings from the given <see cref="DbFactory"/>
-        /// provider (either SqlServer or MySql).
+        /// provider (either SqlServer, MySql or PostgreSql).
         /// </summary>
         /// <param name="optionsBuilder">The builder being used to configure the context.</param>
         /// <param name="factory">The factory instance</param>

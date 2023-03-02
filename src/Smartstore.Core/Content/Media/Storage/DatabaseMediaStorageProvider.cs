@@ -108,10 +108,8 @@ namespace Smartstore.Core.Content.Media.Storage
 
             if (_db.DataProvider.CanReadSequential)
             {
-                using (var stream = OpenBlobStream(mediaFile.MediaStorageId.Value))
-                {
-                    return await stream.ToByteArrayAsync();
-                }
+                using var stream = OpenBlobStream(mediaFile.MediaStorageId.Value);
+                return await stream.ToByteArrayAsync();
             }
             else
             {
@@ -174,13 +172,13 @@ namespace Smartstore.Core.Content.Media.Storage
                 if (media.MediaStorageId == null)
                 {
                     // Insert new blob
-                    var sql = "INSERT INTO MediaStorage (Data) Values(@p0)";
+                    var sql = provider.Sql("INSERT INTO [MediaStorage] ([Data]) Values(@p0)");
                     media.MediaStorageId = await provider.InsertIntoAsync(sql, blobParam);
                 }
                 else
                 {
                     // Update existing blob
-                    var sql = "UPDATE MediaStorage SET Data = @p0 WHERE Id = @p1";
+                    var sql = provider.Sql("UPDATE [MediaStorage] SET [Data] = @p0 WHERE Id = @p1");
                     var idParam = provider.CreateParameter("p1", media.MediaStorageId.Value);
                     await _db.Database.ExecuteSqlRawAsync(sql, blobParam, idParam);
                 }
@@ -246,8 +244,15 @@ namespace Smartstore.Core.Content.Media.Storage
                 // Let target store data (into a file for example)
                 await target.ReceiveAsync(context, mediaFile, await OpenReadAsync(mediaFile));
 
-                // Remove blob from DB with stub entity
-                _db.MediaStorage.Remove(new MediaStorage { Id = mediaFile.MediaStorageId.Value });
+                if (_db.IsReferenceLoaded(mediaFile, x => x.MediaStorage))
+                {
+                    _db.MediaStorage.Remove(mediaFile.MediaStorage);
+                }
+                else
+                {
+                    // Remove detached blob from DB with stub entity
+                    _db.MediaStorage.Remove(new MediaStorage { Id = mediaFile.MediaStorageId.Value });
+                }
 
                 mediaFile.MediaStorageId = null;
             }
@@ -270,9 +275,10 @@ namespace Smartstore.Core.Content.Media.Storage
 
         Task IMediaSender.OnCompletedAsync(MediaMoverContext context, bool succeeded, CancellationToken cancelToken)
         {
-            if (succeeded && context.AffectedFiles.Any() && _db.DataProvider.CanShrink)
+            if (succeeded && context.AffectedFiles.Any() && _db.DataProvider.ProviderType == DbSystemType.SqlServer)
             {
-                // Shrink database after sending/removing at least one blob.
+                // Shrink database after sending/removing at least one blob,
+                // but only in MS SQL Server (takes too long in other systems)
                 return _db.DataProvider.ShrinkDatabaseAsync(cancelToken);
             }
 
