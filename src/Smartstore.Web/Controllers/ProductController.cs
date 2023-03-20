@@ -102,6 +102,7 @@ namespace Smartstore.Web.Controllers
 
         public async Task<IActionResult> ProductDetails(int productId, ProductVariantQuery query)
         {
+            // Sync on purpose because of large column.
             var product = await _db.Products
                 .AsSplitQuery()
                 .IncludeMedia()

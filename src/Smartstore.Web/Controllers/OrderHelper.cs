@@ -142,10 +142,8 @@ namespace Smartstore.Web.Controllers
                 }
             }
 
-            return new ImageModel
+            return new ImageModel(file, pictureSize)
             {
-                File = file,
-                ThumbSize = pictureSize,
                 Title = file?.File?.GetLocalized(x => x.Title)?.Value.NullEmpty() ?? T("Media.Product.ImageLinkTitleFormat", productName),
                 Alt = file?.File?.GetLocalized(x => x.Alt)?.Value.NullEmpty() ?? T("Media.Product.ImageAlternateTextFormat", productName),
                 NoFallback = catalogSettings.HideProductDefaultPictures
@@ -266,7 +264,7 @@ namespace Smartstore.Web.Controllers
                 model.Image = await PrepareOrderItemImageModelAsync(
                     orderItem.Product,
                     mediaSettings.CartThumbPictureSize,
-                    model.ProductName,
+                    model.ProductName!,
                     orderItem.AttributeSelection,
                     catalogSettings);
             }
@@ -311,7 +309,7 @@ namespace Smartstore.Web.Controllers
             // TODO: refactor modelling for multi-order processing.
             var companyCountry = await _db.Countries.FindByIdAsync(companyInfoSettings.CountryId, false);
             model.MerchantCompanyInfo = companyInfoSettings;
-            model.MerchantCompanyCountryName = companyCountry?.GetLocalized(x => x.Name);
+            model.MerchantCompanyCountryName = companyCountry?.GetLocalized(x => x.Name)!;
 
             if (order.ShippingStatus != ShippingStatus.ShippingNotRequired)
             {

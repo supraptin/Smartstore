@@ -26,6 +26,7 @@ using Smartstore.Core.Checkout.Shipping;
 using Smartstore.Core.Common.JsonConverters;
 using Smartstore.Core.Data;
 using Smartstore.Core.Data.Migrations;
+using Smartstore.Core.Localization;
 using Smartstore.Data;
 using Smartstore.Data.Caching;
 using Smartstore.Data.Providers;
@@ -41,6 +42,8 @@ namespace Smartstore.Core.Bootstrapping
 
         public override void ConfigureServices(IServiceCollection services, IApplicationContext appContext)
         {
+            var config = appContext.AppConfiguration;
+            
             // Type converters
             RegisterTypeConverters();
 
@@ -70,14 +73,14 @@ namespace Smartstore.Core.Bootstrapping
             services.AddDisplayControl();
             services.AddWkHtmlToPdf();
 
-            if (appContext.IsInstalled)
+            if (appContext.IsInstalled && config.UsePooledDbContextFactory)
             {
                 // Application DbContext as pooled factory
-                services.AddPooledDbContextFactory<SmartDbContext>(DbContextAction, appContext.AppConfiguration.DbContextPoolSize);
+                services.AddPooledDbContextFactory<SmartDbContext>(DbContextAction, config.DbContextPoolSize);
             }
             else
             {
-                // No pooling during installation
+                // No pooling allowed or desired.
                 services.AddDbContextFactory<SmartDbContext>(DbContextAction);
             }
 
@@ -87,7 +90,17 @@ namespace Smartstore.Core.Bootstrapping
             {
                 if (appContext.IsInstalled)
                 {
-                    builder.UseSecondLevelCache();
+                    if (config.UseDbCache)
+                    {
+                        builder.UseSecondLevelCache();
+                    }
+
+                    if (config.UseSequentialDbDataReader && DataSettings.Instance.DbFactory.DbSystem == DbSystemType.SqlServer)
+                    {
+                        // Fixes large binary or text async read performance issue.
+                        // See: https://github.com/dotnet/SqlClient/issues/593
+                        builder.AddInterceptors(new SequentialDbCommandInterceptor());
+                    }
                 }
 
                 builder

@@ -4,16 +4,25 @@
 
 ### New Features
 
-- **easyCredit** plugin
+- **easyCredit** plugin (commercial)
+- **DependingPrices** plugin (commercial) Enables configuration of prices depending on customer groups, language, store or customer number.
+- New app system settings: `UsePooledDbContextFactory`, `UseDbCache`, `UseSequentialDbDataReader`
 
 ### Improvements
 
 - Added price settings for discount requirements to be validated in product lists.
 - Faster loading of product lists that contain bundles with per-item pricing.
-- MegaSearch: significantly more speed, especially with large amounts of data.
+- MegaSearch:
+	- A significant increase in search speed, especially when dealing with large amounts of data.
+	- Faster indexing.
+	- Word stemming configurable for all languages.
+- More aggressive garbage collector
+- Added `data-invariant` attribute to number input controls 
+- Closed #543 Google Category (GMC) always get lost when copying a product
 
 ### Bugfixes
 
+- Fixed a serious memory leak (`LocalizedValue` held references to `Language.LazyLoader` --> `DbContext`)
 - #557 If the state is optional for addresses, none should be preselected when creating them.
 - #608 Build DeleteGuestCustomers query with LINQ again.
 - Fixed ArgumentException "The source argument contains duplicate keys" in case of menus with duplicate system names.
@@ -25,6 +34,14 @@
 - PostFinance: fixed "The specified refund amount CHF needs to be rounded to a maximum of 2 decimal places".
 - Fixed ArgumentNullException in ProcessImageQuery.Add if name is null.
 - Fixed price adjustment of attributes was saved only with two decimal places.
+- Fixed missing inventory adjustment when the stock quantity was changed through product grid.
+- The link to remove a search filter must not contain a page index, otherwise inconsistent search results will occur.
+- Fixed InvalidCastException "Unable to cast object of type 'Newtonsoft.Json.Linq.JObject' to type 'Smartstore.Core.Search.Facets.FacetGroup'" when OutputCache is active.
+- Category or manufacturer discount was not applied if no other changes were made to the category or manufacturer except for the discount assignment.
+- Cart rules assigned to a payment method were not applied in checkout.
+- MegaSearch: fixed a memory leak during indexing.
+- Fixed native validation for quantity inputs
+- Google Analytics: Fixed rendering of prices with thousands separator 
 
 
 ## Smartstore 5.0.3

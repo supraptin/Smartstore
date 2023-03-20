@@ -7,10 +7,12 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
 using Smartstore.Admin.Models.Maintenance;
+using Smartstore.Core.Catalog.Products.Utilities;
 using Smartstore.Core.Checkout.Payment;
 using Smartstore.Core.Checkout.Shipping;
 using Smartstore.Core.Common.Services;
 using Smartstore.Core.Common.Settings;
+using Smartstore.Core.Content.Media;
 using Smartstore.Core.Content.Media.Imaging;
 using Smartstore.Core.DataExchange.Export;
 using Smartstore.Core.DataExchange.Import;
@@ -41,6 +43,7 @@ namespace Smartstore.Admin.Controllers
         private readonly ICustomerService _customerService;
         private readonly IImageFactory _imageFactory;
         private readonly Lazy<IImageCache> _imageCache;
+        private readonly Lazy<IImageOffloder> _imageOffloader;
         private readonly Lazy<IFilePermissionChecker> _filePermissionChecker;
         private readonly Lazy<ICurrencyService> _currencyService;
         private readonly Lazy<IPaymentService> _paymentService;
@@ -59,6 +62,7 @@ namespace Smartstore.Admin.Controllers
             ICustomerService customerService,
             IImageFactory imageFactory,
             Lazy<IImageCache> imageCache,
+            Lazy<IImageOffloder> imageOffloader,
             Lazy<IFilePermissionChecker> filePermissionChecker,
             Lazy<ICurrencyService> currencyService,
             Lazy<IPaymentService> paymentService,
@@ -76,6 +80,7 @@ namespace Smartstore.Admin.Controllers
             _customerService = customerService;
             _imageFactory = imageFactory;
             _imageCache = imageCache;
+            _imageOffloader = imageOffloader;
             _filePermissionChecker = filePermissionChecker;
             _currencyService = currencyService;
             _paymentService = paymentService;
@@ -187,6 +192,33 @@ namespace Smartstore.Admin.Controllers
             }
 
             return RedirectToAction("Index");
+        }
+
+        [Permission(Permissions.System.Maintenance.Execute)]
+        public async Task<IActionResult> OffloadEmbeddedImages(int take = 200)
+        {
+            //var result = await ProductPictureHelper.OffloadEmbeddedImages(_db, _mediaService.Value, take);
+            var result = await _imageOffloader.Value.BatchOffloadEmbeddedImagesAsync(take);
+
+            var message = result.ToString();
+
+            if (result.NumAttempted < result.NumProcessedEntities)
+            {
+                message += 
+                    Environment.NewLine + 
+                    Environment.NewLine + 
+                    "!! Apparently some embedded images could not be parsed and replaced correctly. Maybe incomplete or invalid HTML?";
+            }
+
+            if (result.NumProcessedEntities < result.NumAffectedEntities)
+            {
+                message +=
+                    Environment.NewLine +
+                    Environment.NewLine +
+                    "Please re-execute this script to continue processing the rest of the entities.";
+            }
+
+            return Content(message);
         }
 
         #endregion
@@ -353,8 +385,8 @@ namespace Smartstore.Admin.Controllers
                 model.LoadedAssemblies.Add(loadedAssembly);
             }
 
-            //// MemCache stats
-            //model.MemoryCacheStats = GetMemoryCacheStats();
+            //// MemCache size in bytes
+            //model.MemoryCacheSize = GetMemCacheBytes();
 
             return View(model);
         }
@@ -365,17 +397,23 @@ namespace Smartstore.Admin.Controllers
             try
             {
                 _imageFactory.ReleaseMemory();
+
                 await Task.Delay(500);
 
-                GC.Collect();
+                // Aggressive GC
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, true, true);
                 GC.WaitForPendingFinalizers();
-                GC.Collect();
+
                 await Task.Delay(500);
 
                 NotifySuccess(T("Admin.System.SystemInfo.GarbageCollectSuccessful"));
             }
             catch (Exception ex)
             {
+                // Relaxed GC
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
                 NotifyError(ex);
             }
 
@@ -437,7 +475,7 @@ namespace Smartstore.Admin.Controllers
                 var status = response.StatusCode;
                 var warningModel = new SystemWarningModel
                 {
-                    Level = (status == HttpStatusCode.OK ? SystemWarningLevel.Pass : SystemWarningLevel.Fail)
+                    Level = status == HttpStatusCode.OK ? SystemWarningLevel.Pass : SystemWarningLevel.Fail
                 };
 
                 if (status == HttpStatusCode.OK)
@@ -869,44 +907,20 @@ namespace Smartstore.Admin.Controllers
         #region Utils
 
         /// <summary>
-        /// Counts the size of all objects in both IMemoryCache and Smartstore memory cache
+        /// Counts the byte size of all objects in both IMemoryCache and Smartstore memory cache
         /// </summary>
-        private IDictionary<string, long> GetMemoryCacheStats()
+        private long GetMemCacheBytes()
         {
+            // System memory cache
+            var size = GetObjectSize(_memCache);
+
+            // Smartstore memory cache
             var cache = Services.CacheFactory.GetMemoryCache();
-            var stats = new Dictionary<string, long>();
-            var instanceLookups = new HashSet<object>(ReferenceEqualityComparer.Instance) { cache, _memCache };
+            size += GetObjectSize(cache);
 
-            // IMemoryCache
-            var memCacheKeys = _memCache.EnumerateKeys().ToArray();
-            foreach (var key in memCacheKeys)
-            {
-                var value = _memCache.Get(key);
-                var size = GetObjectSize(value);
+            return size;
 
-                if (key is string str)
-                {
-                    stats.Add("MemoryCache:" + str.Replace(':', '_'), size + (sizeof(char) + (str.Length + 1)));
-                }
-                else
-                {
-                    stats.Add("MemoryCache:" + key.ToString(), size + GetObjectSize(key));
-                }
-            }
-
-            // Smartstore CacheManager
-            var cacheKeys = cache.Keys("*").ToArray();
-            foreach (var key in cacheKeys)
-            {
-                var value = cache.Get<object>(key);
-                var size = GetObjectSize(value);
-
-                stats.Add(key, size + (sizeof(char) + (key.Length + 1)));
-            }
-
-            return stats;
-
-            long GetObjectSize(object obj)
+            static long GetObjectSize(object obj)
             {
                 if (obj == null)
                 {
@@ -915,7 +929,7 @@ namespace Smartstore.Admin.Controllers
 
                 try
                 {
-                    return CommonHelper.GetObjectSizeInBytes(obj, instanceLookups);
+                    return CommonHelper.CalculateObjectSizeInBytes(obj);
                 }
                 catch
                 {
@@ -926,10 +940,6 @@ namespace Smartstore.Admin.Controllers
 
         private static long GetPrivateBytes()
         {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
             var process = Process.GetCurrentProcess();
             process.Refresh();
 
